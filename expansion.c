@@ -11,11 +11,15 @@ the "$$" string for smallsh.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <regex.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "expansion.h"
 
 /*
     expand$$
+
+    :parameter: tokenString - current token string being evaluated
+    :returns: expanded form of token string if possible, otherwise returns original string
 
     This function will check for the "$$" string. If detected 
     it will process the tokenString input parameter to replace
@@ -24,21 +28,31 @@ the "$$" string for smallsh.
 char *expand$$(char *tokenString)
 {   
     int startIndex = -1; // starting index of first instance of "$$". This is inialized to -1 because 0 is a valid index.
-    int endIndex = 0; // will hold the index value of the portion of the string that is after "$$" in cases where it is sandwiched
-
     startIndex = canExpand(tokenString); // check for expansion and retrieve index of "$$"" if found
-    checkFormat(tokenString);
+
 
     //"$$" is present and must be expanded to be process ID
     if(startIndex != -1)
     {
+        int getFormat; // holds tokenString format type designation 1, 2, 3, or 4
 
+        // perform "$$" expansion and capture in new buffer
+        char *expandedString;
+        expandedString = performExpansion(tokenString, startIndex);
 
+        return expandedString;       
+    }
+    else
+    {   
+        // can't be expanded return original string
+        return tokenString;
     }
 }
 
 /*
     canExpand
+
+    :parameter: tokenString - current token string being evaluated
 
     This function will check if expansion is possible. If so it will
     return the index of the first occurance of "$$"
@@ -49,7 +63,7 @@ int canExpand(char *tokenString)
     check = strstr(tokenString, "$$"); // check for first instance of "$$"
 
     // if an instance of "$$" exists in tokenString
-    if(check)
+    if(check != NULL)
     {
         // calculate and return index of 1st instance of "$$"
         int subStrLocation = check - tokenString; // obtain index of check by calculating the difference from the beginning pointer (0)     
@@ -62,61 +76,48 @@ int canExpand(char *tokenString)
 }
 
 /*
-    checkFormat
+    performExpansion
 
-    :parameter: tokenString - the string entered by the user containing "$$"
-    :returns: 1, 2, 3 or 4 representing the format types outlined below.
-    
-    This function will determine the format of the "$$" containing string. I chose to use regex for this 
-    because it seemed like a good way to search for string patterns and I have always wanted to learn more about it
-    so this gave me the opportunity. The purpose of this function is to help the performExpansion function know how
-    to process the string containing "$$".
+    :parameter: tokenString - current token string being evaluated
+    :parameter: startIndex - starting index of first instance of "$$" in string
 
-    let s be some arbitrary string, this function will check for the 3 following formats:
-    1. atBegin - "$$" is at the beginning of the string formatted as $$s
-    2. sandwich - "$$" is between 2 strings or charcters formatted as s$$s
-    3. atEnd - "$$" is at the end of a string formatted as s$$
-    4. is$$ - the complete string is "$$" by itself
-
-
+    This function will replace the first instance of $$ 
+    in a string with the process ID. I initialize iteration at the 
+    first instance of "$$" in the string. This is an attempt on optimization 
+    so that no time is wasted iterating over parts of the string where no "$$" will be found.
 */
-int checkFormat(char *tokenString)
+char *performExpansion(char *tokenString, int startIndex)
 {
-    // check for format 4 (is$$)
-    if(strcmp(tokenString, "$$") == 0)
-    {
-        return 4;
+    char *expandedString = calloc(2048, sizeof(char)); // dynamicall allocate adequate memory amount for unknown length
+    int k = 0; // represents index in expandedString
+
+    // begin copying characters from token string to expanded string
+    for(int i = startIndex; i < strlen(tokenString); i++)
+    {   
+        // check for an instance of "$$"
+        if(tokenString[i] == '$' && tokenString[i+1] == '$')
+        {
+            int processID = getpid(); // get PID of smallsh
+            char tempPidStr[12];    // temp string to hold string version of pid
+            memset(tempPidStr, '\0', 12); // set buffer to all '\0'
+            sprintf(tempPidStr,"%i", processID); // convert PID integer to string and store in tempPidStr
+            
+            // Copy all PID characters to expanded string
+            for(int j = 0; j < strlen(tempPidStr); j++)
+            {
+                expandedString[k] = tempPidStr[j];
+                k++; // increment last insertion point for expandedString
+            }
+            i++; // increment i to skip over second '$' char in "$$"
+                 // This is to avoid inserting process id 2 times in cases of "$$$"
+        }
+        else
+        {
+            // no instance of $$ copy character from token string to expanded string as normall
+            expandedString[k] = tokenString[i];
+            k++; // increment last insertion point for expandedString
+        }
     }
-
-    // check other potential formats
-    // declare regex variables
-    regex_t atBegin, sandwich, atEnd;
-    int resultF1 = -1, resultF2 = -1, resultF3 = -1; // will hold the results of the regex comparisons 0 will mean a match
-    int test;
-
-    // compile regex patterns
-    test = regcomp(&atBegin,"^\\${2}([a-zA-Z0-9_\\.\\s]+)" , 0); // format #1: "$$" at the beginning of a string
-    printf("compile result: %i\n", test);
-    regcomp(&sandwich,"([a-zA-Z0-9_\\. ]+)\\${2}([a-zA-Z0-9_\\.\\$ ]+)" , 0); // format #2: "$$" in the middle of a string
-    regcomp(&atEnd,"(([a-zA-Z0-9_\\.\\$ ]+)\\${2}" , 0); // format #3: "$$" at end of a string
-
-    // perform regex comparisons to determine format
-    resultF1 = regexec(&atBegin, tokenString, 0, NULL, 0); // check for format #1
-    resultF2 = regexec(&sandwich, tokenString, 0, NULL, 0); // check for format #2
-    resultF3 = regexec(&atEnd, tokenString, 0, NULL, 0); // check for format #3
-
-    if(resultF1 == 0)
-    {
-        printf("$$ at beginning of string\n");
-    }
-    else if(resultF2 == 0)
-    {
-        printf("$$ is sandwiched\n");
-    }
-    else if(resultF3 == 0)
-    {
-        printf("$$ is at the end!\n");
-    }
-
+    return expandedString;
 }
 

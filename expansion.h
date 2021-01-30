@@ -16,7 +16,7 @@ expansion.c
 
 char *expand$$(char *tokenString); // checks for expansion and processes it
 int canExpand(char *tokenString); // performs check for expansion
-int checkFormat(char *tokenString); // checks format of token string
-
+int checkFormat(char *tokenString, int startIndex); // checks format of token string
+char *performExpansion(char *tokenString, int startIndex); // performs string expansion for "$$"
 
 #endif
