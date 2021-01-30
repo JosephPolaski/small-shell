@@ -41,9 +41,12 @@ int main(void)
     // initiate main loop
     while(shellStatus == active)
     {   
+        // get command line from the user
         userCmdLine = getUserCommandLine(MAXCMDLEN);
 
-        buildCmdStruct(userCmdLine);
+        // process user command line into organized struct
+        struct userCommands *userEntry = buildCmdStruct(userCmdLine);
+        
 
         // remember to free struct
         free(userCmdLine);
@@ -68,6 +71,7 @@ char *getUserCommandLine(int maxLength)
     fflush(stdout); // flush
 
     fgets(cmdLine, maxLength, stdin); // read in command line from user
+    cmdLine[strlen(cmdLine)-1] = '\0'; // strip off \n from fgets
 
     return (cmdLine);
 }
@@ -101,35 +105,57 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
     // keep parsing " " delimited strings until the end of the command line
     while(token != NULL)
     {   
+        printf("current token is: %s\n", token);
+
         // check for input file
-        if(token == "<")
+        if(strcmp(token, "<") == 0)
         {
             token = strtok(NULL, " "); // skip to input file name
-            cmdStruct->inputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string
+            cmdStruct->inputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->inputFile, token); // copy string to inputFile data member
         }
         // check for output file
-        else if(token == ">")
+        else if(strcmp(token, ">") == 0)
         {
             token = strtok(NULL, " "); // skip to output file name
-            cmdStruct->outputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string
+            cmdStruct->outputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->outputFile, token); // copy string to outputFile data member
         }
         // check for background flag
-        else if(token == "&")
+        else if(strcmp(token, "&") == 0)
         {
             cmdStruct->isBackground = true; // set background flag to true
         }
         // treat as command or argument
         else
-        {
-            // check token for expansion
-            // add to args array
-            // iterate counter
-            expand$$(token);
+        {   
+            char *resultString; // to hold result of expand$$()            
+            resultString = expand$$(token); // check token for expansion and retrieve expanded form of string or original string
+
+            // add to command/arguments array
+            cmdStruct->cmdWithArgs[argIndex] = calloc(strlen(resultString) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
+            strcpy(cmdStruct->cmdWithArgs[argIndex], resultString); // copy to array
+
+            argIndex++; // increment insertion index of command/arguments array            
         }
 
         token = strtok(NULL, " "); // retreive next token
     }
-    
+
+    return cmdStruct;    
+}
+
+// prints struct data members for testing
+void printStruct(struct userCommands *testStruct)
+{   
+    printf("Input File: %s\n", testStruct->inputFile);
+    printf("Output File: %s\n", testStruct->outputFile);
+    printf(testStruct->isBackground ? "isBackground: true\n" : "isBackground: false\n");
+
+    for(int i = 0; i < MAXARGS; i++){
+        if(testStruct->cmdWithArgs[i] != NULL)
+        {
+            printf("cmdArg %i: %s\n", i, testStruct->cmdWithArgs[i]);
+        }
+    }
 }
