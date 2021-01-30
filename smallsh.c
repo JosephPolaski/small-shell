@@ -14,6 +14,7 @@ This is the main source file for the smallsh shell program.
 #include <string.h>
 #include <stdbool.h>
 #include "smallsh.h"
+#include "expansion.h"
 
 // Global Constants
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
@@ -41,6 +42,8 @@ int main(void)
     while(shellStatus == active)
     {   
         userCmdLine = getUserCommandLine(MAXCMDLEN);
+
+        buildCmdStruct(userCmdLine);
 
         // remember to free struct
         free(userCmdLine);
@@ -123,6 +126,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
             // check token for expansion
             // add to args array
             // iterate counter
+            expand$$(token);
         }
 
         token = strtok(NULL, " "); // retreive next token
