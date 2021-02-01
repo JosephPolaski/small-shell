@@ -32,6 +32,7 @@ struct userCommands
     char *inputFile; // will hold input file name if any
     char *outputFile; // will hold output file if any
     bool isBackground; // will the process run in the background?
+    bool hasRedir; // is there any IO redirection in the command
 };
 
 int main(void)
@@ -106,6 +107,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
     cmdStruct->inputFile = NULL;
     cmdStruct->outputFile = NULL;
     cmdStruct->isBackground = false;
+    cmdStruct->hasRedir = false;
 
     // tokenize userCmdLine and read in all values
     char *token;
@@ -118,7 +120,8 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
     {   
         // check for input file
         if(strcmp(token, "<") == 0)
-        {
+        {   
+            cmdStruct->hasRedir = true; // set redirection flag
             token = strtok(NULL, " "); // skip to input file name
             cmdStruct->inputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->inputFile, token); // copy string to inputFile data member
@@ -126,6 +129,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
         // check for output file
         else if(strcmp(token, ">") == 0)
         {
+            cmdStruct->hasRedir = true; // set redirection flag
             token = strtok(NULL, " "); // skip to output file name
             cmdStruct->outputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->outputFile, token); // copy string to outputFile data member
@@ -234,8 +238,16 @@ void executeOthers(struct userCommands *cmdStruct)
 			break;
 		default:
             // Runs in Parent Process
-            // if foreground wait for process
-            childPid = wait(&childStatus);
+
+            // Check Background Flag
+            if(cmdStruct->isBackground = false)
+            {
+                childPid = wait(&childStatus); // BG flag == false, run process in foreground
+            }
+            else
+            {   
+                childPid = waitpid(childPid, &childStatus, WNOHANG); // BG flag == true, run process in background
+            }       
             
 			break;
 	}                                                                        
@@ -255,6 +267,7 @@ void redirectIO(struct userCommands *cmdStruct)
         if(fileDesc[0] == -1)
         {
             perror("Open input file error: "); // opening file failed
+            exit(1); // exit with status 1
         }
         else
         {
@@ -271,11 +284,18 @@ void redirectIO(struct userCommands *cmdStruct)
         if(fileDesc[1] == -1)
         {
             perror("Open input file error: "); // opening file failed
+            exit(1); // exit with status 1
         }
         else
         {
             dup2(fileDesc[1], 1); // redirect stdout to the given output file
         }       
+    }
+
+    // background process with no redirection specifiec /dev/null
+    if(cmdStruct->isBackground == true && cmdStruct->hasRedir == false)
+    {
+
     }
 }
 
