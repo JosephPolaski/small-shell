@@ -118,6 +118,7 @@ char *performExpansion(char *tokenString, int startIndex)
             k++; // increment last insertion point for expandedString
         }
     }
+    expandedString[strlen(expandedString)] = '\0'; // append null terminator to created string
     return expandedString;
 }
 
