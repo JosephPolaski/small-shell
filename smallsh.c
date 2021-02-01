@@ -9,10 +9,15 @@ This is the main source file for the smallsh shell program.
 */
 
 #define _GNU_SOURCE // access nonstandard GNU/Linux functions
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "smallsh.h"
 #include "expansion.h"
 
@@ -46,6 +51,12 @@ int main(void)
 
         // process user command line into organized struct
         struct userCommands *userEntry = buildCmdStruct(userCmdLine);
+
+        printStruct(userEntry);
+
+        // execute user commands
+        shellStatus = runUserCommands(userEntry);
+
         
 
         // remember to free struct
@@ -105,8 +116,6 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
     // keep parsing " " delimited strings until the end of the command line
     while(token != NULL)
     {   
-        printf("current token is: %s\n", token);
-
         // check for input file
         if(strcmp(token, "<") == 0)
         {
@@ -143,6 +152,131 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
     }
 
     return cmdStruct;    
+}
+
+/*
+*   runUserCommands
+*
+*   This function executes whatever commands the user provided to smallsh
+*/
+int runUserCommands(struct userCommands *cmdStruct)
+{
+    // check custom commands first
+    if(strcmp(cmdStruct->cmdWithArgs[0], "exit") == 0)
+    {
+        // exit status give, set flag to inactive (1)
+        return 1;
+    }
+    else if(strcmp(cmdStruct->cmdWithArgs[0], "cd") == 0)
+    {
+        char *pathArg = cmdStruct->cmdWithArgs[1]; // fetch single argument supported by custom cd
+
+        // if the user supplied a path argument
+        if(pathArg != NULL)
+        {
+            chdir(pathArg); // change directory to user specified path
+        }
+        // user supplied no path
+        else
+        {   
+            chdir(getenv("HOME")); // change directory to path specified in HOME environment variable
+        }
+    }
+    else if(strcmp(cmdStruct->cmdWithArgs[0], "status") == 0)
+    {
+        // not 100% on this yet
+    }
+    // Execute all other non - custom commands
+    else
+    {
+        executeOthers(cmdStruct);
+    }
+    
+    return 0;
+}
+
+/*
+*   executeOthers
+*
+*   This function forks a new child process and exits 
+*   any non custom linux shell commands provided.
+*
+*   Source Cited:
+*   title: Exploration: Process API - Monitoring Child Processes
+*   author: OSU Instructor - Unknown
+*   URL: https://canvas.oregonstate.edu/courses/1798831/pages/exploration-process-api-monitoring-child-processes?module_item_id=20163874
+*   Description: I took the code from the wait repl.it example code and used it and modified it to work for the purposes
+*   of my program. 
+*/
+void executeOthers(struct userCommands *cmdStruct)
+{
+    pid_t spawnpid = -5; // initialize with non standard value (garbage)
+	int childStatus; // will contain child exit status
+    int childPid; // child pid will be returned by wait
+
+    // fork child process
+	spawnpid = fork();
+
+	switch (spawnpid){
+		case -1:
+			perror("forking child process failed!");
+            fflush(stdout); // flush stdout
+			exit(1);
+			break;
+		case 0:
+            // Runs in Child Process
+			
+            redirectIO(cmdStruct); // setup file redirection
+
+            execvp(cmdStruct->cmdWithArgs[0], cmdStruct->cmdWithArgs); // execute command
+
+            perror("smallsh: command not found!");
+			break;
+		default:
+            // Runs in Parent Process
+            // if foreground wait for process
+            childPid = wait(&childStatus);
+            
+			break;
+	}                                                                        
+}
+
+// redirects file IO
+void redirectIO(struct userCommands *cmdStruct)
+{   
+    int fileDesc[2]; // use for file descriptors
+
+    // check for input file
+    if(cmdStruct->inputFile != NULL)
+    {
+        fileDesc[0] = open(cmdStruct->inputFile, O_RDONLY | O_CLOEXEC, 0700); // open input file for read only set to close by exec functions
+
+        // check for error
+        if(fileDesc[0] == -1)
+        {
+            perror("Open input file error: "); // opening file failed
+        }
+        else
+        {
+             dup2(fileDesc[0], 0); // redirect stdin to the given input file
+        }       
+    }
+
+    // check for outnput file
+    if(cmdStruct->outputFile != NULL)
+    {
+        fileDesc[1] = open(cmdStruct->outputFile, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0700); // open output file for read only set to close by exec functions
+        
+        // check for error
+        if(fileDesc[1] == -1)
+        {
+            perror("Open input file error: "); // opening file failed
+        }
+        else
+        {
+            dup2(fileDesc[1], 1); // redirect stdout to the given output file
+        }       
+    }
 }
 
 // prints struct data members for testing

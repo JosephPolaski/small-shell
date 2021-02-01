@@ -14,6 +14,9 @@ This headerfile contains all prototypes for functions defined in smallsh.c
 
 char *getUserCommandLine(int maxLength); // prompts user and recieves command line
 struct userCommands *buildCmdStruct(char *userCmdLine); // build a struct out of the user entered command line
-void printStruct(struct userCommands *testStruct);
+void printStruct(struct userCommands *testStruct); // TEST PURPOSES ONLY
+int runUserCommands(struct userCommands *cmdStruct); // runs the commands entered by the user
+void executeOthers(struct userCommands *cmdStruct);
+void redirectIO(struct userCommands *cmdStruct);
 
 #endif
