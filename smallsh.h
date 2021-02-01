@@ -16,7 +16,7 @@ char *getUserCommandLine(int maxLength); // prompts user and recieves command li
 struct userCommands *buildCmdStruct(char *userCmdLine); // build a struct out of the user entered command line
 void printStruct(struct userCommands *testStruct); // TEST PURPOSES ONLY
 int runUserCommands(struct userCommands *cmdStruct); // runs the commands entered by the user
-void executeOthers(struct userCommands *cmdStruct);
-void redirectIO(struct userCommands *cmdStruct);
+void executeOthers(struct userCommands *cmdStruct); // this function executes all non custom bash commands given
+void redirectIO(struct userCommands *cmdStruct); // this function handles any file redirection necessary based on user inputs
 
 #endif

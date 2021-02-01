@@ -82,9 +82,7 @@ int canExpand(char *tokenString)
     :parameter: startIndex - starting index of first instance of "$$" in string
 
     This function will replace the first instance of $$ 
-    in a string with the process ID. I initialize iteration at the 
-    first instance of "$$" in the string. This is an attempt on optimization 
-    so that no time is wasted iterating over parts of the string where no "$$" will be found.
+    in a string with the process ID. 
 */
 char *performExpansion(char *tokenString, int startIndex)
 {
@@ -92,7 +90,7 @@ char *performExpansion(char *tokenString, int startIndex)
     int k = 0; // represents index in expandedString
 
     // begin copying characters from token string to expanded string
-    for(int i = startIndex; i < strlen(tokenString); i++)
+    for(int i = 0; i < strlen(tokenString); i++)
     {   
         // check for an instance of "$$"
         if(tokenString[i] == '$' && tokenString[i+1] == '$')
