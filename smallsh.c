@@ -14,12 +14,15 @@ This is the main source file for the smallsh shell program.
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include "smallsh.h"
 #include "expansion.h"
+#include "smallsh.h"
+
+
 
 // Global Constants
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
@@ -28,7 +31,7 @@ This is the main source file for the smallsh shell program.
 // This struct will be used to keep track of the user input commands
 struct userCommands
 {
-    char *cmdWithArgs[MAXARGS]; // will be an array of strings with the command and all arguments
+    char *cmdWithArgs[MAXARGS + 1]; // will be an array of strings with the command and all 512 arguments
     char *inputFile; // will hold input file name if any
     char *outputFile; // will hold output file if any
     bool isBackground; // will the process run in the background?
@@ -37,8 +40,8 @@ struct userCommands
 
 int main(void)
 {       
-
     char *userCmdLine; // will hold the original command line from the user max length 2048 characters
+    int lastFGProcStat = 0; // will contiain the exit status of the last run foreground process    
 
     // Establish Main Loop Flag
     enum progStatus {active, inactive};
@@ -47,18 +50,19 @@ int main(void)
     // initiate main loop
     while(shellStatus == active)
     {   
+        // check for any finishing background processes
+        checkBGProcs();
+
         // get command line from the user
         userCmdLine = getUserCommandLine(MAXCMDLEN);
 
         // process user command line into organized struct
         struct userCommands *userEntry = buildCmdStruct(userCmdLine);
 
-        printStruct(userEntry);
+        //printStruct(userEntry); //TEST ONLY
 
         // execute user commands
-        shellStatus = runUserCommands(userEntry);
-
-        
+        shellStatus = runUserCommands(userEntry, &lastFGProcStat);        
 
         // remember to free struct
         free(userCmdLine);
@@ -103,6 +107,12 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
 
     int argIndex = 0; // will track the argument index for cmdStruct->cmdWIthArgs[]
 
+    
+    // initialize array to all NULL values
+    for(int i = 0; i < (MAXARGS + 1); i++)
+    {
+        cmdStruct->cmdWithArgs[i] = NULL;
+    }
     // initialize optional data members
     cmdStruct->inputFile = NULL;
     cmdStruct->outputFile = NULL;
@@ -161,9 +171,12 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
 /*
 *   runUserCommands
 *
+*   :parameter: cmdStruct - the structure holding the user entered command data
+*   :parameter: lastProcState - used to return the exit status for the last child process
+*
 *   This function executes whatever commands the user provided to smallsh
 */
-int runUserCommands(struct userCommands *cmdStruct)
+int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat)
 {
     // check custom commands first
     if(strcmp(cmdStruct->cmdWithArgs[0], "exit") == 0)
@@ -188,12 +201,12 @@ int runUserCommands(struct userCommands *cmdStruct)
     }
     else if(strcmp(cmdStruct->cmdWithArgs[0], "status") == 0)
     {
-        // not 100% on this yet
+        checkExitStatus(*lastProcStat); // check the exit status of the last forground process
     }
     // Execute all other non - custom commands
     else
     {
-        executeOthers(cmdStruct);
+        executeOthers(cmdStruct, lastProcStat);
     }
     
     return 0;
@@ -212,11 +225,12 @@ int runUserCommands(struct userCommands *cmdStruct)
 *   Description: I took the code from the wait repl.it example code and used it and modified it to work for the purposes
 *   of my program. 
 */
-void executeOthers(struct userCommands *cmdStruct)
+void executeOthers(struct userCommands *cmdStruct, int *lastProcStat)
 {
     pid_t spawnpid = -5; // initialize with non standard value (garbage)
 	int childStatus; // will contain child exit status
-    int childPid; // child pid will be returned by wait
+    int childPid; // child pid will be returned by waitpid
+    int bgChildPid; // for background child pids
 
     // fork child process
 	spawnpid = fork();
@@ -228,9 +242,9 @@ void executeOthers(struct userCommands *cmdStruct)
 			exit(1);
 			break;
 		case 0:
-            // Runs in Child Process
-			
-            redirectIO(cmdStruct); // setup file redirection
+            // Runs in Child Process            
+            
+            redirectIO(cmdStruct); // setup file redirection                    
 
             execvp(cmdStruct->cmdWithArgs[0], cmdStruct->cmdWithArgs); // execute command
 
@@ -238,19 +252,21 @@ void executeOthers(struct userCommands *cmdStruct)
 			break;
 		default:
             // Runs in Parent Process
-
+      
             // Check Background Flag
-            if(cmdStruct->isBackground = false)
-            {
-                childPid = wait(&childStatus); // BG flag == false, run process in foreground
+            if(cmdStruct->isBackground == false)
+            {   
+                // Run Foreground Process
+                childPid = waitpid(spawnpid, &childStatus, 0); // BG flag == false, run process in foreground
+                *lastProcStat = childStatus; // return to lastFGProc in main()
             }
             else
             {   
-                childPid = waitpid(childPid, &childStatus, WNOHANG); // BG flag == true, run process in background
+                // Run Background Process
+                bgChildPid = waitpid(spawnpid, &childStatus, WNOHANG); // BG flag == true, run process in background
             }       
-            
 			break;
-	}                                                                        
+	}                                                                          
 }
 
 // redirects file IO
@@ -267,15 +283,16 @@ void redirectIO(struct userCommands *cmdStruct)
         if(fileDesc[0] == -1)
         {
             perror("Open input file error: "); // opening file failed
+            fflush(stdout);
             exit(1); // exit with status 1
         }
         else
         {
              dup2(fileDesc[0], 0); // redirect stdin to the given input file
         }       
-    }
+    }  
 
-    // check for outnput file
+    // check for output file
     if(cmdStruct->outputFile != NULL)
     {
         fileDesc[1] = open(cmdStruct->outputFile, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0700); // open output file for read only set to close by exec functions
@@ -284,6 +301,7 @@ void redirectIO(struct userCommands *cmdStruct)
         if(fileDesc[1] == -1)
         {
             perror("Open input file error: "); // opening file failed
+            fflush(stdout);
             exit(1); // exit with status 1
         }
         else
@@ -291,10 +309,55 @@ void redirectIO(struct userCommands *cmdStruct)
             dup2(fileDesc[1], 1); // redirect stdout to the given output file
         }       
     }
+    // redirect stdout to /dev/null to avoid catastrophic errors
+    else if(cmdStruct->outputFile == NULL && cmdStruct->isBackground == true)
+    {           
+        fileDesc[1] = open("/dev/null", O_WRONLY); // open /dev/null for writing
+        dup2(fileDesc[1], 1); // redirect stdout to the given /dev/null
+    }
 
-    // background process with no redirection specifiec /dev/null
-    if(cmdStruct->isBackground == true && cmdStruct->hasRedir == false)
+}
+
+// checks and prints out the exit status of the last foreground process run
+void checkExitStatus(int lastFGStat)
+{
+    // check for a normal exit status
+    if(WIFEXITED(lastFGStat) != 0)
     {
+        printf("The last foreground process exited normally with status: %i\n", WEXITSTATUS(lastFGStat));
+        fflush(stdout);
+    }
+
+    // check for signal termination
+    if(WIFSIGNALED(lastFGStat) != 0)
+    {
+        printf("The last foreground process terminated by signal: %i\n", WTERMSIG(lastFGStat));
+        fflush(stdout);
+    }
+}
+
+
+void checkBGProcs(void)
+{
+    int finishedPID; // will hold the pid of the finished background process
+    int exitStatus; // will hold the exit status of background process
+
+    // check for any child processes to return PIDs as they exit
+    while((finishedPID = waitpid(-1, &exitStatus, WNOHANG)) > 0)
+    {
+        // check for a normal exit status
+        if(WIFEXITED(exitStatus) != 0)
+        {
+            printf("Background process %i exited with status: %i\n", finishedPID,WEXITSTATUS(exitStatus));
+            fflush(stdout);
+        }
+
+        // check for signal termination
+        if(WIFSIGNALED(exitStatus) != 0)
+        {
+            printf("Background process %i terminated by signal: %i\n", finishedPID,WTERMSIG(exitStatus));
+            fflush(stdout);
+        }
 
     }
 }

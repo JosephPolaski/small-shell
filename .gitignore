@@ -1,2 +1,5 @@
 # ignore launch and build files
 .vscode/
+
+bg_list.c
+bg_list.h
