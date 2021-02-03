@@ -22,11 +22,11 @@ This is the main source file for the smallsh shell program.
 #include "expansion.h"
 #include "smallsh.h"
 
-
-
 // Global Constants
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
 #define MAXARGS 512 // maximum arguments allowed in command line
+#define BGPROCS 300 // length of background proccess tracking list
+bool foreground_only = false; // global foreground flag
 
 // This struct will be used to keep track of the user input commands
 struct userCommands
@@ -41,7 +41,30 @@ struct userCommands
 int main(void)
 {       
     char *userCmdLine; // will hold the original command line from the user max length 2048 characters
-    int lastFGProcStat = 0; // will contiain the exit status of the last run foreground process    
+    int lastFGProcStat = 0; // will contiain the exit status of the last run foreground process
+    int backgroundProcs[BGPROCS]; // will be used to store background process pids
+
+    // initialize background pid array to all 0 values
+    for(int i = 0; i < BGPROCS; i ++)
+        backgroundProcs[i] = 0;  
+
+    // declare empty action struct for Ctrl-C (SIGINT)
+    struct sigaction SIGINT_action = {0};
+   
+    // configure struct
+	SIGINT_action.sa_handler = SIG_IGN;  // set handler to ignore SIGINT
+	sigfillset(&SIGINT_action.sa_mask); // set mask for signal blocking 
+	SIGINT_action.sa_flags = 0; // set no flags
+	sigaction(SIGINT, &SIGINT_action, NULL); // register custom ignore handler to SIGINT signal 
+
+    // declare empty action struct for Ctrl-Z (SIGSTP)
+    struct sigaction SIGSTP_action = {0};
+   
+    // configure struct
+	SIGSTP_action.sa_handler = SIGSTP_Handler;  // set handler to ignore SIGINT
+	sigfillset(&SIGSTP_action.sa_mask); // set mask for signal blocking 
+	SIGSTP_action.sa_flags = 0; // set no flags
+	sigaction(SIGTSTP, &SIGSTP_action, NULL); // register custom ignore handler to SIGINT signal
 
     // Establish Main Loop Flag
     enum progStatus {active, inactive};
@@ -51,7 +74,7 @@ int main(void)
     while(shellStatus == active)
     {   
         // check for any finishing background processes
-        checkBGProcs();
+        checkBackground(backgroundProcs);           
 
         // get command line from the user
         userCmdLine = getUserCommandLine(MAXCMDLEN);
@@ -62,7 +85,7 @@ int main(void)
         //printStruct(userEntry); //TEST ONLY
 
         // execute user commands
-        shellStatus = runUserCommands(userEntry, &lastFGProcStat);        
+        shellStatus = runUserCommands(userEntry, &lastFGProcStat, SIGINT_action, backgroundProcs);        
 
         // remember to free struct
         free(userCmdLine);
@@ -146,8 +169,12 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
         }
         // check for background flag
         else if(strcmp(token, "&") == 0)
-        {
-            cmdStruct->isBackground = true; // set background flag to true
+        {   
+            // allow background only outside of foreground mode
+            if(foreground_only == false)
+            {
+                cmdStruct->isBackground = true; // set background flag to true
+            }            
         }
         // treat as command or argument
         else
@@ -176,13 +203,17 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
 *
 *   This function executes whatever commands the user provided to smallsh
 */
-int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat)
+int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat, struct sigaction sigIntAction, int backgroundPIDs[])
 {
     // check custom commands first
-    if(strcmp(cmdStruct->cmdWithArgs[0], "exit") == 0)
+    if(cmdStruct->cmdWithArgs[0] == NULL || strcmp(cmdStruct->cmdWithArgs[0], "#") == 0)
     {
-        // exit status give, set flag to inactive (1)
-        return 1;
+        return 0;
+    }
+    else if(strcmp(cmdStruct->cmdWithArgs[0], "exit") == 0)
+    {   
+        killpg(getpgrp(), SIGTERM); // kill entire process group of shell, SIGTERM allows for cleanup
+        exit(0); // exit shell
     }
     else if(strcmp(cmdStruct->cmdWithArgs[0], "cd") == 0)
     {
@@ -191,12 +222,16 @@ int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat)
         // if the user supplied a path argument
         if(pathArg != NULL)
         {
-            chdir(pathArg); // change directory to user specified path
+           // change directory to user specified path
+           if(chdir(pathArg) != 0)
+            {
+                perror("Changing Directories Failed"); // print error if failure
+            } 
         }
         // user supplied no path
         else
-        {   
-            chdir(getenv("HOME")); // change directory to path specified in HOME environment variable
+        {               
+            chdir(getenv("HOME")); // change directory to path specified in HOME environment variable         
         }
     }
     else if(strcmp(cmdStruct->cmdWithArgs[0], "status") == 0)
@@ -206,7 +241,7 @@ int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat)
     // Execute all other non - custom commands
     else
     {
-        executeOthers(cmdStruct, lastProcStat);
+        executeOthers(cmdStruct, lastProcStat, sigIntAction, backgroundPIDs);
     }
     
     return 0;
@@ -225,12 +260,13 @@ int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat)
 *   Description: I took the code from the wait repl.it example code and used it and modified it to work for the purposes
 *   of my program. 
 */
-void executeOthers(struct userCommands *cmdStruct, int *lastProcStat)
+void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sigaction sigIntAction, int backgroundPIDs[])
 {
     pid_t spawnpid = -5; // initialize with non standard value (garbage)
 	int childStatus; // will contain child exit status
     int childPid; // child pid will be returned by waitpid
     int bgChildPid; // for background child pids
+    int execResult = 0; // will hold the result of the execvp()
 
     // fork child process
 	spawnpid = fork();
@@ -242,17 +278,30 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat)
 			exit(1);
 			break;
 		case 0:
-            // Runs in Child Process            
+            // Runs in Child Process
+
             
+            // restore normal Ctrl-C function for foreground children
+            if(cmdStruct->isBackground == false)
+            {
+                sigIntAction.sa_handler = &SIGINT_Handler; // restore SIGINT to default action for child
+                sigfillset(&sigIntAction.sa_mask); // set mask for signal blocking 
+	            sigIntAction.sa_flags = 0; // set no flags
+                sigaction(SIGINT, &sigIntAction, NULL); // register default handler to SIGINT signal
+            }
+                   
             redirectIO(cmdStruct); // setup file redirection                    
 
-            execvp(cmdStruct->cmdWithArgs[0], cmdStruct->cmdWithArgs); // execute command
-
-            perror("smallsh: command not found!");
+            execResult = execvp(cmdStruct->cmdWithArgs[0], cmdStruct->cmdWithArgs); // execute command
+                        // check for execution failure
+            if(execResult == -1)
+            {
+                perror("smallsh: command not found!");
+                exit(1); // exit on failure
+            }            
 			break;
 		default:
             // Runs in Parent Process
-      
             // Check Background Flag
             if(cmdStruct->isBackground == false)
             {   
@@ -264,9 +313,12 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat)
             {   
                 // Run Background Process
                 bgChildPid = waitpid(spawnpid, &childStatus, WNOHANG); // BG flag == true, run process in background
-            }       
+                trackBGPID(spawnpid, backgroundPIDs);
+                printf("Running Background PID: %i\n", spawnpid); // announce running bg process
+            }                                    
 			break;
-	}                                                                          
+	}
+                                              
 }
 
 // redirects file IO
@@ -312,7 +364,7 @@ void redirectIO(struct userCommands *cmdStruct)
     // redirect stdout to /dev/null to avoid catastrophic errors
     else if(cmdStruct->outputFile == NULL && cmdStruct->isBackground == true)
     {           
-        fileDesc[1] = open("/dev/null", O_WRONLY); // open /dev/null for writing
+        fileDesc[1] = open("/dev/null", O_WRONLY | O_CLOEXEC); // open /dev/null for writing
         dup2(fileDesc[1], 1); // redirect stdout to the given /dev/null
     }
 
@@ -324,14 +376,14 @@ void checkExitStatus(int lastFGStat)
     // check for a normal exit status
     if(WIFEXITED(lastFGStat) != 0)
     {
-        printf("The last foreground process exited normally with status: %i\n", WEXITSTATUS(lastFGStat));
+        printf("foreground process exited normally with status: %i\n", WEXITSTATUS(lastFGStat));
         fflush(stdout);
     }
 
     // check for signal termination
     if(WIFSIGNALED(lastFGStat) != 0)
     {
-        printf("The last foreground process terminated by signal: %i\n", WTERMSIG(lastFGStat));
+        printf("foreground process terminated by signal: %i\n", WTERMSIG(lastFGStat));
         fflush(stdout);
     }
 }
@@ -360,6 +412,87 @@ void checkBGProcs(void)
         }
 
     }
+}
+
+// checks background list for finished background processes
+void checkBackground(int backgroundPids[])
+{   
+    int finishedPID, exitStatus; // will hold the process ID and exit status of finished background process
+
+    for(int i = 0; i < BGPROCS; i++)
+    {   
+        // check all non zero values for finished status
+        if(backgroundPids[i] != 0 && (finishedPID = waitpid(backgroundPids[i], &exitStatus, WNOHANG)) > 0)
+        {
+            // check for a normal exit status
+            if(WIFEXITED(exitStatus) != 0)
+            {
+                printf("Background process %i exited with status: %i\n", finishedPID,WEXITSTATUS(exitStatus));
+                fflush(stdout);
+                removeBGPID(finishedPID, backgroundPids); // remove from tracking array
+            }
+
+            // check for signal termination
+            if(WIFSIGNALED(exitStatus) != 0)
+            {
+                printf("Background process %i terminated by signal: %i\n", finishedPID,WTERMSIG(exitStatus));
+                fflush(stdout);
+                removeBGPID(finishedPID, backgroundPids); // remove from tracking array
+            }
+        }
+    }
+}
+
+// adds a background proc to the tracking list
+void trackBGPID(int pid, int backgroundPIDs[])
+{
+    // search for the first 0 value spot update the value to the provided pid
+    for(int i = 0; i < BGPROCS; i++)
+    {
+        if(backgroundPIDs[i] == 0)
+        {
+            backgroundPIDs[i] = pid; // update to new value
+            break;
+        }
+    }
+}
+
+// adds a background proc to the tracking list
+void removeBGPID(int pid, int backgroundPIDs[])
+{
+    // search for and remove matching pid
+    for(int i = 0; i < BGPROCS; i++)
+    {
+        if(backgroundPIDs[i] == pid)
+        {
+            backgroundPIDs[i] = 0; // reset to 0
+            break;
+        }
+    }
+}
+
+void SIGINT_Handler(int signo)
+{   
+    fflush(stdout);
+    char *testTxt = "TEST WORKED!!!!\n";
+    write(STDOUT_FILENO, testTxt, strlen(testTxt));
+}
+
+void SIGSTP_Handler(int signo)
+{   
+    // toggle foreground mode
+    if(foreground_only == false)
+    {
+        foreground_only = true;
+        char *testTxt = "\nGoing into foreground mode. Background Processes (&) Now Ignored.\n";
+        write(STDOUT_FILENO, testTxt, strlen(testTxt));
+    }
+    else
+    {
+        foreground_only = false;
+        char *testTxt = "\nExiting foreground mode. Background Processes (&) Now Allowed.\n";
+        write(STDOUT_FILENO, testTxt, strlen(testTxt));
+    }   
 }
 
 // prints struct data members for testing
