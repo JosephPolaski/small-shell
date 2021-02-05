@@ -5,7 +5,8 @@ CS344: Program 3
 expansion.c
 
 This source file contains function definitions related to the expansion of 
-the "$$" string for smallsh.
+the "$$" string for smallsh. All instances of "$$" will be recognized as the
+process ID of Smallsh.
 
 */
 #include <stdio.h>
@@ -34,8 +35,6 @@ char *expand$$(char *tokenString)
     //"$$" is present and must be expanded to be process ID
     if(startIndex != -1)
     {
-        int getFormat; // holds tokenString format type designation 1, 2, 3, or 4
-
         // perform "$$" expansion and capture in new buffer
         char *expandedString;
         expandedString = performExpansion(tokenString, startIndex);
@@ -111,7 +110,7 @@ char *performExpansion(char *tokenString, int startIndex)
         }
         else
         {
-            // no instance of $$ copy character from token string to expanded string as normall
+            // no instance of "$$"" copy character from token string to expanded string as normal
             expandedString[k] = tokenString[i];
             k++; // increment last insertion point for expandedString
         }
