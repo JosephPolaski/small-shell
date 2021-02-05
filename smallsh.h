@@ -6,6 +6,12 @@ smallsh.h
 
 This headerfile contains all prototypes for functions defined in smallsh.c
 
+Sources Cited:
+Title: C Header Files and Prototypes
+Author: Mark Kevin Baltazar
+URL: https://medium.com/@markkevinbaltazar/c-header-files-and-prototypes-170ecdf526d
+Description: I read this article in order to learn how to properly implement header files for 
+function prototyping.
 */
 
 // header guard

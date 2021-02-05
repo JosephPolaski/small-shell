@@ -55,9 +55,12 @@ int main(void)
     for(int i = 0; i < BGPROCS; i ++)
         backgroundProcs[i] = 0;  
 
+    /*
+        Code Referenced From Source Cited Above
+    **********************************/
     // declare empty action struct for Ctrl-C (SIGINT)
-    struct sigaction SIGINT_action = {0};
-   
+    struct sigaction SIGINT_action = {0};   
+    
     // configure struct
 	SIGINT_action.sa_handler = SIG_IGN;  // set handler to ignore SIGINT
 	sigfillset(&SIGINT_action.sa_mask); // set mask for signal blocking 
@@ -72,6 +75,9 @@ int main(void)
 	sigfillset(&SIGTSTP_action.sa_mask); // set mask for signal blocking 
 	SIGTSTP_action.sa_flags = 0; // set no flags
 	sigaction(SIGTSTP, &SIGTSTP_action, NULL); // register custom ignore handler to SIGINT signal
+    /*
+        End Code Referenced From Source Cited Above
+    **********************************/
 
     // Establish Main Loop Flag
     enum progStatus {active, inactive};
@@ -90,10 +96,10 @@ int main(void)
         struct userCommands *userEntry = buildCmdStruct(userCmdLine);
 
         // execute user commands
-        shellStatus = runUserCommands(userEntry, &lastFGProcStat, SIGINT_action, backgroundProcs);        
+        shellStatus = runUserCommands(userEntry, &lastFGProcStat, SIGINT_action, backgroundProcs);   
 
-        // remember to free struct
-        free(userCmdLine);
+        // free user command line
+        free(userCmdLine); 
     }
 
     return 0;
@@ -130,13 +136,12 @@ char *getUserCommandLine(int maxLength)
 */
 struct userCommands *buildCmdStruct(char *userCmdLine)
 {    
-    char lastChar = userCmdLine[strlen(userCmdLine)-1]; // make a reference to the last character in the user command line
+    char lastChar = userCmdLine[strlen(userCmdLine)-1]; // make a reference to the last character in the user command line to look for '&'
 
     // dynamically allocate memory for return structure
     struct userCommands *cmdStruct = malloc(sizeof(struct userCommands));
 
     int argIndex = 0; // will track the argument index for cmdStruct->cmdWIthArgs[]
-
     
     // initialize array to all NULL values
     for(int i = 0; i < (MAXARGS + 1); i++)
@@ -162,7 +167,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
         if(strcmp(token, "<") == 0)
         {   
             cmdStruct->hasRedir = true; // set redirection flag
-            token = strtok(NULL, " "); // skip to input file name
+            token = strtok(NULL, " "); // skip to input file name (next token)
             cmdStruct->inputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->inputFile, token); // copy string to inputFile data member
         }
@@ -170,11 +175,11 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
         else if(strcmp(token, ">") == 0)
         {
             cmdStruct->hasRedir = true; // set redirection flag
-            token = strtok(NULL, " "); // skip to output file name
+            token = strtok(NULL, " "); // skip to output file name (next token)
             cmdStruct->outputFile = calloc(strlen(token) + 1, sizeof(char)); // dynamically allocate memory for token size string and '\0'
             strcpy(cmdStruct->outputFile, token); // copy string to outputFile data member
         }
-        // check for background flag
+        // check for background flag in the last character position in the user command line
         else if(strcmp(token, "&") == 0 && lastChar == '&')
         {   
             // allow background only outside of foreground mode
@@ -296,9 +301,8 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
 			exit(1);
 			break;
 		case 0:
-            // Runs in Child Process
-            
-            // restore normal Ctrl-C function for foreground children
+            //Child Process            
+            // restore normal SIGINT function for foreground children
             if(cmdStruct->isBackground == false)
             {
                 sigIntAction.sa_handler = SIG_DFL; // restore SIGINT to default action for child
@@ -308,7 +312,7 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
             redirectIO(cmdStruct); // setup file redirection                    
 
             execResult = execvp(cmdStruct->cmdWithArgs[0], cmdStruct->cmdWithArgs); // execute command
-                        // check for execution failure
+            // check for execution failure
             if(execResult == -1)
             {
                 perror("smallsh: command not found!");
@@ -316,7 +320,7 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
             }            
 			break;
 		default:
-            // Runs in Parent Process
+            //Parent Process
             // Check Background Flag
             if(cmdStruct->isBackground == false)
             {   
@@ -432,14 +436,15 @@ void checkExitStatus(int lastFGStat)
 *
 *   :parameter: backgroundPIDs[] - this is an array used to keep track of background PIDs
 *
- *   This function will check the array of background PIDs and
- *   if one has exited, it will invoke the function to print a 
-*    message to the user that the background process has finished
+*   This function will check the array of background PIDs and
+*   if one has exited, it will print a message to the user that 
+*   the background process has finished and remove it from the tracking list.
 */
 void checkBackground(int backgroundPids[])
 {   
     int finishedPID, exitStatus; // will hold the process ID and exit status of finished background process
 
+    // iterate through background pid array
     for(int i = 0; i < BGPROCS; i++)
     {   
         // check all non zero values for finished status
@@ -520,7 +525,7 @@ void removeBGPID(int pid, int backgroundPIDs[])
 *   Author: Unknown OSU Instructor
 *   URL: https://canvas.oregonstate.edu/courses/1798831/pages/exploration-signal-handling-api?module_item_id=20163882
 *   Description: I heavily referenced this exploration module and used a modified version of the 
-*   code for my own application of custom signal handlers.*
+*   code for my own application of custom signal handlers.
 */
 void SIGTSTP_Handler(int signo)
 {   
