@@ -33,7 +33,6 @@ code for my own application of custom signal handlers.
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
 #define MAXARGS 512 // maximum arguments allowed in command line
 #define BGPROCS 300 // length of background proccess tracking list
-
 bool foreground_only = false; // global foreground flag
 
 // This struct will be used to keep track of the user input commands
@@ -80,7 +79,7 @@ int main(void)
 
     // initiate main loop
     while(shellStatus == active)
-    {   
+    {
         // check for any finishing background processes
         checkBackground(backgroundProcs);           
 
@@ -130,7 +129,9 @@ char *getUserCommandLine(int maxLength)
 *   :return: cmdStruct: structure containing commands organized as data members
 */
 struct userCommands *buildCmdStruct(char *userCmdLine)
-{       
+{    
+    char lastChar = userCmdLine[strlen(userCmdLine)-1]; // make a reference to the last character in the user command line
+
     // dynamically allocate memory for return structure
     struct userCommands *cmdStruct = malloc(sizeof(struct userCommands));
 
@@ -174,7 +175,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
             strcpy(cmdStruct->outputFile, token); // copy string to outputFile data member
         }
         // check for background flag
-        else if(strcmp(token, "&") == 0)
+        else if(strcmp(token, "&") == 0 && lastChar == '&')
         {   
             // allow background only outside of foreground mode
             if(foreground_only == false)

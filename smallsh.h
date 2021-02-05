@@ -22,6 +22,6 @@ void trackBGPID(int pid, int backgroundPIDs[]); // will add a new background pid
 void removeBGPID(int pid, int backgroundPIDs[]); // removes a matching pid from the tracking list
 void checkBackground(int backgroundPids[]);
 void SIGINT_Handler(int signum);
-void SIGSTP_Handler(int signo);
+void SIGTSTP_Handler(int signo);
 
 #endif
