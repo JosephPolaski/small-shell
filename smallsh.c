@@ -6,6 +6,13 @@ smallsh.c
 
 This is the main source file for the smallsh shell program. 
 
+Source Cited:
+Title: Exploration: Signal Handling API
+Author: Unknown OSU Instructor
+URL: https://canvas.oregonstate.edu/courses/1798831/pages/exploration-signal-handling-api?module_item_id=20163882
+Description: I heavily referenced this exploration module and used a modified version of the 
+code for my own application of custom signal handlers.
+
 */
 
 #define _GNU_SOURCE // access nonstandard GNU/Linux functions
@@ -26,6 +33,7 @@ This is the main source file for the smallsh shell program.
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
 #define MAXARGS 512 // maximum arguments allowed in command line
 #define BGPROCS 300 // length of background proccess tracking list
+
 bool foreground_only = false; // global foreground flag
 
 // This struct will be used to keep track of the user input commands
@@ -57,14 +65,14 @@ int main(void)
 	SIGINT_action.sa_flags = 0; // set no flags
 	sigaction(SIGINT, &SIGINT_action, NULL); // register custom ignore handler to SIGINT signal 
 
-    // declare empty action struct for Ctrl-Z (SIGSTP)
-    struct sigaction SIGSTP_action = {0};
+    // declare empty action struct for Ctrl-Z (SIGTSTP)
+    struct sigaction SIGTSTP_action = {0};
    
     // configure struct
-	SIGSTP_action.sa_handler = SIGSTP_Handler;  // set handler to ignore SIGINT
-	sigfillset(&SIGSTP_action.sa_mask); // set mask for signal blocking 
-	SIGSTP_action.sa_flags = 0; // set no flags
-	sigaction(SIGTSTP, &SIGSTP_action, NULL); // register custom ignore handler to SIGINT signal
+	SIGTSTP_action.sa_handler = SIGTSTP_Handler;  // set handler to ignore SIGINT
+	sigfillset(&SIGTSTP_action.sa_mask); // set mask for signal blocking 
+	SIGTSTP_action.sa_flags = 0; // set no flags
+	sigaction(SIGTSTP, &SIGTSTP_action, NULL); // register custom ignore handler to SIGINT signal
 
     // Establish Main Loop Flag
     enum progStatus {active, inactive};
@@ -81,8 +89,6 @@ int main(void)
 
         // process user command line into organized struct
         struct userCommands *userEntry = buildCmdStruct(userCmdLine);
-
-        //printStruct(userEntry); //TEST ONLY
 
         // execute user commands
         shellStatus = runUserCommands(userEntry, &lastFGProcStat, SIGINT_action, backgroundProcs);        
@@ -200,18 +206,25 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
 *
 *   :parameter: cmdStruct - the structure holding the user entered command data
 *   :parameter: lastProcState - used to return the exit status for the last child process
+*   :parameter: sigIntAction - this is the signal handler structure for SIGINT (ctrl-c)
+*   :parameter: backgroundPIDs[] - this is an array used to keep track of background PIDs
 *
-*   This function executes whatever commands the user provided to smallsh
+*   This function executes whatever commands the user provided to smallsh if the command is unknown in give an error
 */
 int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat, struct sigaction sigIntAction, int backgroundPIDs[])
 {
     // check custom commands first
-    if(cmdStruct->cmdWithArgs[0] == NULL || strcmp(cmdStruct->cmdWithArgs[0], "#") == 0)
-    {
+    if(cmdStruct->cmdWithArgs[0] == NULL || strcmp(cmdStruct->cmdWithArgs[0], "#") == 0 || cmdStruct->cmdWithArgs[0][0] == '#')
+    {   
+        // comment or NULL was entered, Do Nothing
         return 0;
     }
     else if(strcmp(cmdStruct->cmdWithArgs[0], "exit") == 0)
-    {   
+    {  
+        fflush(stdout);
+        char *exitTxt = "...Killing all child processes and exiting smallsh shell\n"; // custom exit message
+        write(STDOUT_FILENO, exitTxt, strlen(exitTxt));
+        
         killpg(getpgrp(), SIGTERM); // kill entire process group of shell, SIGTERM allows for cleanup
         exit(0); // exit shell
     }
@@ -250,6 +263,10 @@ int runUserCommands(struct userCommands *cmdStruct, int *lastProcStat, struct si
 /*
 *   executeOthers
 *
+*   :parameter: lastProcState - used to return the exit status for the last child process
+*   :parameter: sigIntAction - this is the signal handler structure for SIGINT (ctrl-c)
+*   :parameter: backgroundPIDs[] - this is an array used to keep track of background PIDs
+*
 *   This function forks a new child process and exits 
 *   any non custom linux shell commands provided.
 *
@@ -279,14 +296,11 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
 			break;
 		case 0:
             // Runs in Child Process
-
             
             // restore normal Ctrl-C function for foreground children
             if(cmdStruct->isBackground == false)
             {
-                sigIntAction.sa_handler = &SIGINT_Handler; // restore SIGINT to default action for child
-                sigfillset(&sigIntAction.sa_mask); // set mask for signal blocking 
-	            sigIntAction.sa_flags = 0; // set no flags
+                sigIntAction.sa_handler = SIG_DFL; // restore SIGINT to default action for child
                 sigaction(SIGINT, &sigIntAction, NULL); // register default handler to SIGINT signal
             }
                    
@@ -307,7 +321,15 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
             {   
                 // Run Foreground Process
                 childPid = waitpid(spawnpid, &childStatus, 0); // BG flag == false, run process in foreground
-                *lastProcStat = childStatus; // return to lastFGProc in main()
+                *lastProcStat = childStatus; // return to lastFGProc in main() for use with status()
+
+                 // check for signal termination by ctrl-c and print messsage
+                if(WIFSIGNALED(childStatus) != 0 && childStatus == SIGINT)
+                {
+                    // print out signal number to user
+                    printf("foreground process terminated by signal: %i\n", WTERMSIG(childStatus));
+                    fflush(stdout);
+                }
             }
             else
             {   
@@ -321,7 +343,15 @@ void executeOthers(struct userCommands *cmdStruct, int *lastProcStat, struct sig
                                               
 }
 
-// redirects file IO
+/*
+    redirectIO
+
+    :parameter: cmdStruct - pointer to command line struct containing user entered commands
+
+    This function sets up any IO redirection based on the arguments pased in by the user
+    for background processes it redirects to /dev/null. This was done to avoid confilicting 
+    output text from background processes.
+*/
 void redirectIO(struct userCommands *cmdStruct)
 {   
     int fileDesc[2]; // use for file descriptors
@@ -370,13 +400,20 @@ void redirectIO(struct userCommands *cmdStruct)
 
 }
 
-// checks and prints out the exit status of the last foreground process run
+/*
+*   checkExitStatus
+*
+*   :parameter: lastFGStat - this is the exit status of the last executed foreground process
+*
+*   This function provides the functionality for the status command. It will check the last exit status 
+*   of a foreground function and print it out to the user.
+*/
 void checkExitStatus(int lastFGStat)
 {
     // check for a normal exit status
     if(WIFEXITED(lastFGStat) != 0)
     {
-        printf("foreground process exited normally with status: %i\n", WEXITSTATUS(lastFGStat));
+        printf("foreground process exited with status: %i\n", WEXITSTATUS(lastFGStat));
         fflush(stdout);
     }
 
@@ -389,32 +426,15 @@ void checkExitStatus(int lastFGStat)
 }
 
 
-void checkBGProcs(void)
-{
-    int finishedPID; // will hold the pid of the finished background process
-    int exitStatus; // will hold the exit status of background process
-
-    // check for any child processes to return PIDs as they exit
-    while((finishedPID = waitpid(-1, &exitStatus, WNOHANG)) > 0)
-    {
-        // check for a normal exit status
-        if(WIFEXITED(exitStatus) != 0)
-        {
-            printf("Background process %i exited with status: %i\n", finishedPID,WEXITSTATUS(exitStatus));
-            fflush(stdout);
-        }
-
-        // check for signal termination
-        if(WIFSIGNALED(exitStatus) != 0)
-        {
-            printf("Background process %i terminated by signal: %i\n", finishedPID,WTERMSIG(exitStatus));
-            fflush(stdout);
-        }
-
-    }
-}
-
-// checks background list for finished background processes
+/*
+*    checkBackground
+*
+*   :parameter: backgroundPIDs[] - this is an array used to keep track of background PIDs
+*
+ *   This function will check the array of background PIDs and
+ *   if one has exited, it will invoke the function to print a 
+*    message to the user that the background process has finished
+*/
 void checkBackground(int backgroundPids[])
 {   
     int finishedPID, exitStatus; // will hold the process ID and exit status of finished background process
@@ -443,7 +463,15 @@ void checkBackground(int backgroundPids[])
     }
 }
 
-// adds a background proc to the tracking list
+/*
+    trackBGPID
+
+    :parameter: pid - a process id of a background process
+    :parameter: backgroundPIDs[] - an array containing background process IDs
+
+    This function will add a new background process PID to the first empty 
+    array index it finds in backgroundPIDs[]
+*/
 void trackBGPID(int pid, int backgroundPIDs[])
 {
     // search for the first 0 value spot update the value to the provided pid
@@ -451,13 +479,21 @@ void trackBGPID(int pid, int backgroundPIDs[])
     {
         if(backgroundPIDs[i] == 0)
         {
-            backgroundPIDs[i] = pid; // update to new value
+            backgroundPIDs[i] = pid; // update to new PID value
             break;
         }
     }
 }
 
-// adds a background proc to the tracking list
+/*
+    removeBGPID
+
+    :parameter: pid - a process id of a background process
+    :parameter: backgroundPIDs[] - an array containing background process IDs
+
+    This function will reset the index in backgroundPIDs array that matches pid
+    back to 0 and make it available to store another pid
+*/
 void removeBGPID(int pid, int backgroundPIDs[])
 {
     // search for and remove matching pid
@@ -471,14 +507,21 @@ void removeBGPID(int pid, int backgroundPIDs[])
     }
 }
 
-void SIGINT_Handler(int signo)
-{   
-    fflush(stdout);
-    char *testTxt = "TEST WORKED!!!!\n";
-    write(STDOUT_FILENO, testTxt, strlen(testTxt));
-}
-
-void SIGSTP_Handler(int signo)
+/*
+*   SIGTSTP_Handler
+*
+*   :parameter: signo - this is the terminating signal number 
+*
+*   This is the custom signal handler for SIGTSTP signal (ctrl - z)
+*
+*   Source Cited:
+*   Title: Exploration: Signal Handling API
+*   Author: Unknown OSU Instructor
+*   URL: https://canvas.oregonstate.edu/courses/1798831/pages/exploration-signal-handling-api?module_item_id=20163882
+*   Description: I heavily referenced this exploration module and used a modified version of the 
+*   code for my own application of custom signal handlers.*
+*/
+void SIGTSTP_Handler(int signo)
 {   
     // toggle foreground mode
     if(foreground_only == false)
@@ -493,19 +536,4 @@ void SIGSTP_Handler(int signo)
         char *testTxt = "\nExiting foreground mode. Background Processes (&) Now Allowed.\n";
         write(STDOUT_FILENO, testTxt, strlen(testTxt));
     }   
-}
-
-// prints struct data members for testing
-void printStruct(struct userCommands *testStruct)
-{   
-    printf("Input File: %s\n", testStruct->inputFile);
-    printf("Output File: %s\n", testStruct->outputFile);
-    printf(testStruct->isBackground ? "isBackground: true\n" : "isBackground: false\n");
-
-    for(int i = 0; i < MAXARGS; i++){
-        if(testStruct->cmdWithArgs[i] != NULL)
-        {
-            printf("cmdArg %i: %s\n", i, testStruct->cmdWithArgs[i]);
-        }
-    }
 }
