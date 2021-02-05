@@ -33,7 +33,6 @@ code for my own application of custom signal handlers.
 #define MAXCMDLEN 2048 // maximum characters allowed in command line
 #define MAXARGS 512 // maximum arguments allowed in command line
 #define BGPROCS 300 // length of background proccess tracking list
-
 bool foreground_only = false; // global foreground flag
 
 // This struct will be used to keep track of the user input commands
