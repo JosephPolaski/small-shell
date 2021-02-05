@@ -79,7 +79,7 @@ int main(void)
 
     // initiate main loop
     while(shellStatus == active)
-    {   
+    {
         // check for any finishing background processes
         checkBackground(backgroundProcs);           
 
@@ -129,7 +129,9 @@ char *getUserCommandLine(int maxLength)
 *   :return: cmdStruct: structure containing commands organized as data members
 */
 struct userCommands *buildCmdStruct(char *userCmdLine)
-{       
+{    
+    char lastChar = userCmdLine[strlen(userCmdLine)-1]; // make a reference to the last character in the user command line
+
     // dynamically allocate memory for return structure
     struct userCommands *cmdStruct = malloc(sizeof(struct userCommands));
 
@@ -173,7 +175,7 @@ struct userCommands *buildCmdStruct(char *userCmdLine)
             strcpy(cmdStruct->outputFile, token); // copy string to outputFile data member
         }
         // check for background flag
-        else if(strcmp(token, "&") == 0)
+        else if(strcmp(token, "&") == 0 && lastChar == '&')
         {   
             // allow background only outside of foreground mode
             if(foreground_only == false)
