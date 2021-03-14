@@ -1,4 +1,4 @@
-**Small Shell (Smallsh)**
+**Small Shell**
 -------------------------
 **A lightweight custom shell written in C**
 
@@ -8,7 +8,7 @@ This is a project that I completed for my Operating Systems I class. It is a lig
 **Overview**
 ---
 -------
-This project was developed with Visual Studio Code on CentOS Linux. The unique features of Smallsh are as follows:
+This project was developed with Visual Studio Code on CentOS Linux. The unique features of Small Shell are as follows:
 
 * Supports 3 custom commands for cd, exit and status.
 * all other commands with arguments fork a new process and are executed via execvp().
@@ -18,7 +18,7 @@ This project was developed with Visual Studio Code on CentOS Linux. The unique f
     - **SIGINT (ctrl + c):** can be used to kill foreground child processes. Ignored by parent shell.
     - **SIGTSTP (ctrl + z):** toggles foreground only mode. In this mode any background processes asttempted will be run in the foreground.
 * Variable expansion of '$$': anywhere the user enters '$$' whether by itself or part of a string, this shell will recognize it as the process ID of the shell.
-* Note: the pipe operator '|' is not supported by smallsh
+* Note: the pipe operator '|' is not supported by Small Shell
 
 **Compile and Run**
 ---
