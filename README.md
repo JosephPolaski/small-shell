@@ -3,12 +3,12 @@
 **A lightweight custom shell written in C**
 
 -------------------------
-This is a project that I completed for my Operating Systems I class. It is a lightweight shell designed for linux. This documentation will give an overview of the shell and how to compile and run it.
+This is a project that I completed for my Operating Systems I class. It is a lightweight shell designed for Linux. This documentation will give an overview of the shell and how to compile and run it.
 
 **Overview**
 ---
 -------
-This project was developed with Visual Studio Code on CentOS linux. The unique featuress of Smallsh are as follows:
+This project was developed with Visual Studio Code on CentOS Linux. The unique features of Smallsh are as follows:
 
 * Supports 3 custom commands for cd, exit and status.
 * all other commands with arguments fork a new process and are executed via execvp().
