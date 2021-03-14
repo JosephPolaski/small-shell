@@ -1,4 +1,4 @@
-**Smallsh**
+**Small Shell (Smallsh)**
 -------------------------
 **A lightweight custom shell written in C**
 
